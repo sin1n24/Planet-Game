@@ -103,18 +103,23 @@ function initGame() {
 }
 
 function setupEnemies() {
+    // ステージごとの敵機数調整
     let enemyCount = (stage === 1) ? 4 : (stage === 2) ? 6 : (stage === 3) ? 7 : 8;
     const safeCircleR = S * 0.55;
     const rectSafeMargin = isLandscape ? canvas.width * 0.2 : canvas.height * 0.2;
 
+    // 確定エネミー
     enemies.push(createEnemyObject((player.x + goal.x) / 2, (player.y + goal.y) / 2));
 
     let attempts = 0;
     while (enemies.length < enemyCount && attempts < 500) {
         const ex = Math.random() * canvas.width;
         const ey = Math.random() * canvas.height;
-        const inCircleSafe = Math.hypot(ex - player.x, ey - player.y) < safeCircleR || Math.hypot(ex - goal.x, ey - goal.y) < S * 0.3;
+        const distToStart = Math.hypot(ex - player.x, ey - player.y);
+        const distToGoal = Math.hypot(ex - goal.x, ey - goal.y);
+        const inCircleSafe = distToStart < safeCircleR || distToGoal < S * 0.3;
         const inRectSafe = isLandscape ? (ex < rectSafeMargin || ex > canvas.width - rectSafeMargin) : (ey < rectSafeMargin || ey > canvas.height - rectSafeMargin);
+        
         if (!inCircleSafe && !inRectSafe) enemies.push(createEnemyObject(ex, ey));
         attempts++;
     }
@@ -142,7 +147,22 @@ function createBoss() {
     }
 }
 
+// 爆発エフェクト（パーティクル）生成関数
+function createExplosion(x, y, color, count = 20) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x, y, 
+            vx: (Math.random() - 0.5) * S * 0.04, 
+            vy: (Math.random() - 0.5) * S * 0.04,
+            life: 1.0, 
+            color: color, 
+            r: S * 0.01
+        });
+    }
+}
+
 function update() {
+    // パーティクルの更新
     particles.forEach((p, i) => {
         p.x += p.vx; p.y += p.vy; p.life -= 0.02;
         if (p.life <= 0) particles.splice(i, 1);
@@ -150,14 +170,18 @@ function update() {
 
     if (gameState !== 'playing') return;
 
+    // エネルギーの自然減少
     if (stageEnergy > 0) {
         stageEnergy -= 0.04;
     } else {
         stageEnergy = 0;
     }
 
+    // 自機の移動処理
     player.x += (player.targetX - player.x) * player.speed;
     player.y += (player.targetY - player.y) * player.speed;
+    
+    // 残像データの蓄積
     player.trail.push({x: player.x, y: player.y});
     if (player.trail.length > 8) player.trail.shift();
 
@@ -165,11 +189,13 @@ function update() {
     let closestEnemy = null;
     let minD = Infinity;
 
+    // 最も近い敵を特定
     enemies.forEach(e => {
         const d = Math.hypot(player.x - e.x, player.y - e.y);
         if (d < minD) { minD = d; closestEnemy = e; }
     });
 
+    // 敵の挙動更新
     enemies.forEach((e, i) => {
         const distP = Math.hypot(player.x - e.x, player.y - e.y);
         const isKiller = (stageEnergy === 0 && e === closestEnemy);
@@ -177,14 +203,16 @@ function update() {
         if (distP < sensorDist || isKiller) {
             const angle = Math.atan2(player.y - e.y, player.x - e.x);
             let force = (S * 0.00004 * stage + 0.008);
+            
             if (isKiller) {
-                // エネルギー切れ且つ遠い場合は3倍速
+                // エネルギー切れ且つ遠い（Sの40%以上）場合は3倍速で接近
                 force = (distP > S * 0.4) ? 0.06 : 0.02;
             }
             e.vx += Math.cos(angle) * force;
             e.vy += Math.sin(angle) * force;
         }
 
+        // 敵機同士の反発
         enemies.forEach((other, j) => {
             if (i === j) return;
             const d = Math.hypot(e.x - other.x, e.y - other.y);
@@ -197,6 +225,8 @@ function update() {
         });
 
         e.vx *= 0.95; e.vy *= 0.95; e.x += e.vx; e.y += e.vy;
+        
+        // 壁反射
         if(e.x < 0 || e.x > canvas.width) e.vx *= -1;
         if(e.y < 0 || e.y > canvas.height) e.vy *= -1;
 
@@ -210,12 +240,14 @@ function update() {
         }
     });
 
+    // ボス戦の処理
     if (boss) {
         if (Math.hypot(boss.x - boss.tx, boss.y - boss.ty) < 20) {
             boss.tx = Math.random() * (canvas.width - S * 0.4) + S * 0.2;
             boss.ty = Math.random() * (canvas.height - S * 0.4) + S * 0.2;
         }
-        boss.x += (boss.tx - boss.x) * 0.015; boss.y += (boss.ty - boss.y) * 0.015;
+        // ボス移動速度（高速化）
+        boss.x += (boss.tx - boss.x) * 0.018; boss.y += (boss.ty - boss.y) * 0.018;
         
         if (stageEnergy === 0) {
             const angle = Math.atan2(player.y - boss.y, player.x - boss.x);
@@ -234,9 +266,10 @@ function update() {
             boss.visible = false;
             createExplosion(boss.x, boss.y, goal.color, 80);
             gameState = 'animating';
-            setTimeout(() => { if(stage === 5) showResult("MISSION COMPLETE!"); }, 1000);
+            setTimeout(() => showResult("MISSION COMPLETE!"), 1200);
         }
     } else {
+        // ステージクリア判定
         if (player.visible && Math.hypot(player.x - goal.x, player.y - goal.y) < player.r + goal.r) {
             score += Math.floor(stageEnergy);
             goal.visible = false;
@@ -246,7 +279,10 @@ function update() {
         }
     }
 
+    // フローティングテキスト更新
     floatingTexts.forEach((t, i) => { t.y -= 1; t.life -= 0.02; if (t.life <= 0) floatingTexts.splice(i, 1); });
+    
+    // UI反映
     document.getElementById('stageNum').innerText = stage;
     document.getElementById('scoreVal').innerText = score;
     document.getElementById('bonusVal').innerText = Math.floor(stageEnergy);
@@ -254,12 +290,15 @@ function update() {
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // パーティクル描画
     particles.forEach(p => {
         ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
     });
     ctx.globalAlpha = 1.0;
 
+    // ゴール/ボスの描画
     if (stage < 5 && goal.visible) {
         ctx.beginPath(); ctx.arc(goal.x, goal.y, goal.r, 0, Math.PI * 2);
         ctx.fillStyle = goal.color; ctx.fill();
@@ -275,6 +314,7 @@ function draw() {
         });
     }
 
+    // 敵の描画
     enemies.forEach(e => {
         ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
         ctx.fillStyle = '#ff4b2b'; ctx.fill();
@@ -284,19 +324,22 @@ function draw() {
         ctx.fillStyle = '#ff416c'; ctx.fill();
     });
 
+    // 自機の描画
     if (player.visible) {
-        // 残像
+        // 残像の描画
         player.trail.forEach((t, i) => {
-            ctx.globalAlpha = 0.3 * (i / player.trail.length);
-            ctx.beginPath(); ctx.arc(t.x, t.y, player.r * (0.5 + i/player.trail.length*0.5), 0, Math.PI * 2);
+            ctx.globalAlpha = 0.25 * (i / player.trail.length);
+            ctx.beginPath(); ctx.arc(t.x, t.y, player.r * (0.6 + i/player.trail.length*0.4), 0, Math.PI * 2);
             ctx.fillStyle = player.color; ctx.fill();
         });
         ctx.globalAlpha = 1.0;
 
+        // 自機本体
         ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
         ctx.fillStyle = player.color; ctx.shadowBlur = 15; ctx.shadowColor = player.color; ctx.fill();
         ctx.shadowBlur = 0;
 
+        // エネルギーバー
         const barW = player.r * 2.5;
         const barH = 5;
         ctx.fillStyle = 'rgba(255,255,255,0.2)';
@@ -305,10 +348,12 @@ function draw() {
         ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW * (stageEnergy / 100), barH);
     }
 
+    // テキスト描画
     floatingTexts.forEach(t => {
         ctx.fillStyle = `rgba(255, 75, 43, ${t.life})`;
         ctx.font = `bold ${S*0.04}px Arial`; ctx.fillText(t.text, t.x, t.y);
     });
+    
     requestAnimationFrame(() => { update(); draw(); });
 }
 
@@ -340,8 +385,10 @@ const handleInput = (e) => {
     const rect = canvas.getBoundingClientRect();
     const x = e.touches ? e.touches[0].clientX : e.clientX;
     const y = e.touches ? e.touches[0].clientY : e.clientY;
+    
     stageEnergy -= 10;
     if (stageEnergy < 0) stageEnergy = 0;
+    
     floatingTexts.push({ x: x - rect.left, y: y - rect.top, text: "-10", life: 1.0 });
     player.targetX = x - rect.left;
     player.targetY = y - rect.top;
