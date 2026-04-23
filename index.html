@@ -1,9 +1,18 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-Z4R237CLS1"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-Z4R237CLS1');
+    </script>
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Planet Game</title>
+    <title>ORBITAL_DRIFT</title>
     <style>
         body { margin: 0; overflow: hidden; background: #050510; font-family: 'Arial', sans-serif; color: white; }
         canvas { display: block; }
@@ -12,7 +21,7 @@
         .hud-item { flex: 1; text-align: center; }
         .hud-item:first-child { text-align: left; }
         .hud-item:last-child { text-align: right; }
-        #bonusVal { color: #ff4b2b; font-size: 1.2em; }
+        #bonusVal { color: #00d2ff; font-size: 1.2em; }
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.85); display: none;
@@ -30,7 +39,7 @@
 <div id="ui">
     <div class="hud">
         <div class="hud-item">STAGE: <span id="stageNum">1</span> / 5</div>
-        <div class="hud-item">BONUS: <span id="bonusVal">100</span></div>
+        <div class="hud-item">ENERGY: <span id="bonusVal">100</span></div>
         <div class="hud-item">SCORE: <span id="scoreVal">0</span></div>
     </div>
 </div>
@@ -43,22 +52,14 @@
 </div>
 
 <canvas id="gameCanvas"></canvas>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-Z4R237CLS1"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
 
-  gtag('config', 'G-Z4R237CLS1');
-</script>
 <script>
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
 let stage = 1;
 let score = 0;
-let stageBonus = 100;
+let stageEnergy = 100;
 let gameState = 'playing';
 let enemies = [];
 let particles = [];
@@ -67,7 +68,11 @@ let boss = null;
 let isLandscape = true;
 let S = 0;
 
-const player = { x: 0, y: 0, r: 0, color: '#00d2ff', targetX: 0, targetY: 0, speed: 0.08, visible: true };
+const player = { 
+    x: 0, y: 0, r: 0, color: '#00d2ff', 
+    targetX: 0, targetY: 0, speed: 0.08, visible: true,
+    trail: []
+};
 const goal = { x: 0, y: 0, r: 0, color: '#ffea00', visible: true };
 
 function initGame() {
@@ -81,93 +86,58 @@ function initGame() {
 
     const offsetFactor = (stage % 3) * 0.25 + 0.25;
     if (isLandscape) {
-        player.x = canvas.width * 0.1;
-        player.y = canvas.height * offsetFactor;
-        goal.x = canvas.width * 0.9;
-        goal.y = canvas.height * (1 - offsetFactor);
+        player.x = canvas.width * 0.1; player.y = canvas.height * offsetFactor;
+        goal.x = canvas.width * 0.9; goal.y = canvas.height * (1 - offsetFactor);
     } else {
-        player.x = canvas.width * offsetFactor;
-        player.y = canvas.height * 0.1;
-        goal.x = canvas.width * (1 - offsetFactor);
-        goal.y = canvas.height * 0.9;
+        player.x = canvas.width * offsetFactor; player.y = canvas.height * 0.1;
+        goal.x = canvas.width * (1 - offsetFactor); goal.y = canvas.height * 0.9;
     }
     player.targetX = player.x; player.targetY = player.y;
-    player.visible = true; goal.visible = true;
-    stageBonus = 100;
+    player.visible = true; goal.visible = true; player.trail = [];
+    stageEnergy = 100;
     enemies = []; boss = null; particles = [];
+    gameState = 'playing';
 
-    if (stage < 5) {
-        setupEnemies();
-    } else {
-        createBoss();
-    }
+    if (stage < 5) setupEnemies();
+    else createBoss();
 }
 
 function setupEnemies() {
-    const enemyCount = 4 + (stage - 1) * 2;
-    const safeCircleR = S * 0.55; // 円形安全半径をさらに拡大
-    const rectSafeMargin = isLandscape ? canvas.width * 0.2 : canvas.height * 0.2; // 矩形安全エリアの幅
+    let enemyCount = (stage === 1) ? 4 : (stage === 2) ? 6 : (stage === 3) ? 7 : 8;
+    const safeCircleR = S * 0.55;
+    const rectSafeMargin = isLandscape ? canvas.width * 0.2 : canvas.height * 0.2;
 
-    // 確定エネミー（最短直線上の真ん中付近）
-    const midX = (player.x + goal.x) / 2;
-    const midY = (player.y + goal.y) / 2;
-    enemies.push(createEnemyObject(midX, midY));
+    enemies.push(createEnemyObject((player.x + goal.x) / 2, (player.y + goal.y) / 2));
 
     let attempts = 0;
     while (enemies.length < enemyCount && attempts < 500) {
         const ex = Math.random() * canvas.width;
         const ey = Math.random() * canvas.height;
-
-        // ハイブリッド安全判定（スタート・ゴール両方）
-        const distToStart = Math.hypot(ex - player.x, ey - player.y);
-        const distToGoal = Math.hypot(ex - goal.x, ey - goal.y);
-
-        // 円形判定
-        const inCircleSafe = distToStart < safeCircleR || distToGoal < S * 0.3;
-        
-        // 矩形判定（横長なら左右、縦長なら上下の端を禁止）
-        const inRectSafe = isLandscape 
-            ? (ex < rectSafeMargin || ex > canvas.width - rectSafeMargin)
-            : (ey < rectSafeMargin || ey > canvas.height - rectSafeMargin);
-
-        if (!inCircleSafe && !inRectSafe) {
-            enemies.push(createEnemyObject(ex, ey));
-        }
+        const inCircleSafe = Math.hypot(ex - player.x, ey - player.y) < safeCircleR || Math.hypot(ex - goal.x, ey - goal.y) < S * 0.3;
+        const inRectSafe = isLandscape ? (ex < rectSafeMargin || ex > canvas.width - rectSafeMargin) : (ey < rectSafeMargin || ey > canvas.height - rectSafeMargin);
+        if (!inCircleSafe && !inRectSafe) enemies.push(createEnemyObject(ex, ey));
         attempts++;
     }
 }
 
 function createEnemyObject(x, y) {
     return {
-        x, y, vx: 0, vy: 0, 
-        r: S * 0.04, 
+        x, y, vx: 0, vy: 0, r: S * 0.04, 
         orbitR: S * 0.12 + Math.random() * (S * 0.05),
         angle: Math.random() * Math.PI * 2,
-        rotSpeed: 0.03 + (stage * 0.005),
+        rotSpeed: 0.02 + (stage * 0.003),
         satelliteR: S * 0.018
     };
 }
 
 function createBoss() {
-    boss = { 
-        x: goal.x, y: goal.y, r: goal.r * 2.5, visible: true, 
-        tx: goal.x, ty: goal.y, satellites: [] 
-    };
+    boss = { x: goal.x, y: goal.y, r: goal.r * 2.5, visible: true, tx: goal.x, ty: goal.y, satellites: [] };
     for (let i = 0; i < 8; i++) {
         boss.satellites.push({
             orbitR: S * 0.2 + Math.random() * (S * 0.15),
             angle: Math.random() * Math.PI * 2,
-            rotSpeed: (Math.random() - 0.5) * 0.06,
+            rotSpeed: (Math.random() - 0.5) * 0.04,
             size: S * 0.02 + Math.random() * (S * 0.01)
-        });
-    }
-}
-
-function createExplosion(x, y, color, count = 20) {
-    for (let i = 0; i < count; i++) {
-        particles.push({
-            x, y, vx: (Math.random() - 0.5) * S * 0.03, vy: (Math.random() - 0.5) * S * 0.03,
-            life: 1.0, color: color, r: S * 0.01
         });
     }
 }
@@ -180,48 +150,64 @@ function update() {
 
     if (gameState !== 'playing') return;
 
-    stageBonus -= 0.04;
-    if (stageBonus <= 0) { stageBonus = 0; gameOver(); }
+    if (stageEnergy > 0) {
+        stageEnergy -= 0.04;
+    } else {
+        stageEnergy = 0;
+    }
 
     player.x += (player.targetX - player.x) * player.speed;
     player.y += (player.targetY - player.y) * player.speed;
+    player.trail.push({x: player.x, y: player.y});
+    if (player.trail.length > 8) player.trail.shift();
 
     const sensorDist = S * 0.8;
+    let closestEnemy = null;
+    let minD = Infinity;
+
+    enemies.forEach(e => {
+        const d = Math.hypot(player.x - e.x, player.y - e.y);
+        if (d < minD) { minD = d; closestEnemy = e; }
+    });
 
     enemies.forEach((e, i) => {
         const distP = Math.hypot(player.x - e.x, player.y - e.y);
-        
-        // 1. 自機への追尾（一定距離内のみ）
-        if (distP < sensorDist) {
+        const isKiller = (stageEnergy === 0 && e === closestEnemy);
+
+        if (distP < sensorDist || isKiller) {
             const angle = Math.atan2(player.y - e.y, player.x - e.x);
-            e.vx += Math.cos(angle) * (S * 0.00005 * stage + 0.01);
-            e.vy += Math.sin(angle) * (S * 0.00005 * stage + 0.01);
+            let force = (S * 0.00004 * stage + 0.008);
+            if (isKiller) {
+                // エネルギー切れ且つ遠い場合は3倍速
+                force = (distP > S * 0.4) ? 0.06 : 0.02;
+            }
+            e.vx += Math.cos(angle) * force;
+            e.vy += Math.sin(angle) * force;
         }
 
-        // 2. 敵機同士の常時反発（常に全エネミー間で計算）
         enemies.forEach((other, j) => {
             if (i === j) return;
             const d = Math.hypot(e.x - other.x, e.y - other.y);
             const repelDist = S * 0.25; 
             if (d < repelDist) {
                 const ang = Math.atan2(e.y - other.y, e.x - other.x);
-                const force = (repelDist - d) / repelDist;
-                e.vx += Math.cos(ang) * force * 0.6;
-                e.vy += Math.sin(ang) * force * 0.6;
+                e.vx += Math.cos(ang) * ((repelDist - d) / repelDist) * 0.6;
+                e.vy += Math.sin(ang) * ((repelDist - d) / repelDist) * 0.6;
             }
         });
 
-        e.vx *= 0.95; e.vy *= 0.95;
-        e.x += e.vx; e.y += e.vy;
-
-        // 画面の縁で跳ね返る
+        e.vx *= 0.95; e.vy *= 0.95; e.x += e.vx; e.y += e.vy;
         if(e.x < 0 || e.x > canvas.width) e.vx *= -1;
         if(e.y < 0 || e.y > canvas.height) e.vy *= -1;
 
         e.angle += e.rotSpeed;
         const sx = e.x + Math.cos(e.angle) * e.orbitR;
         const sy = e.y + Math.sin(e.angle) * e.orbitR;
-        if (distP < player.r + e.r || Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR) gameOver();
+
+        // 衝突判定
+        if (player.visible && (distP < player.r + e.r || Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR)) {
+            gameOver();
+        }
     });
 
     if (boss) {
@@ -229,39 +215,45 @@ function update() {
             boss.tx = Math.random() * (canvas.width - S * 0.4) + S * 0.2;
             boss.ty = Math.random() * (canvas.height - S * 0.4) + S * 0.2;
         }
-        boss.x += (boss.tx - boss.x) * 0.005; boss.y += (boss.ty - boss.y) * 0.005;
+        boss.x += (boss.tx - boss.x) * 0.015; boss.y += (boss.ty - boss.y) * 0.015;
+        
+        if (stageEnergy === 0) {
+            const angle = Math.atan2(player.y - boss.y, player.x - boss.x);
+            boss.x += Math.cos(angle) * 1.5; boss.y += Math.sin(angle) * 1.5;
+        }
+
         boss.satellites.forEach(s => {
             s.angle += s.rotSpeed;
             const sx = boss.x + Math.cos(s.angle) * s.orbitR;
             const sy = boss.y + Math.sin(s.angle) * s.orbitR;
-            if (Math.hypot(player.x - sx, player.y - sy) < player.r + s.size) gameOver();
+            if (player.visible && Math.hypot(player.x - sx, player.y - sy) < player.r + s.size) gameOver();
         });
-        if (Math.hypot(player.x - boss.x, player.y - boss.y) < player.r + boss.r) {
-            score += Math.floor(stageBonus) + 3000;
+
+        if (player.visible && Math.hypot(player.x - boss.x, player.y - boss.y) < player.r + boss.r) {
+            score += Math.floor(stageEnergy);
             boss.visible = false;
             createExplosion(boss.x, boss.y, goal.color, 80);
             gameState = 'animating';
-            setTimeout(() => showResult("MISSION COMPLETE!"), 1500);
+            setTimeout(() => { if(stage === 5) showResult("MISSION COMPLETE!"); }, 1000);
         }
     } else {
-        if (Math.hypot(player.x - goal.x, player.y - goal.y) < player.r + goal.r) {
-            score += Math.floor(stageBonus);
+        if (player.visible && Math.hypot(player.x - goal.x, player.y - goal.y) < player.r + goal.r) {
+            score += Math.floor(stageEnergy);
             goal.visible = false;
             createExplosion(goal.x, goal.y, goal.color, 40);
             gameState = 'animating';
-            setTimeout(() => { stage++; gameState = 'playing'; initGame(); }, 1000);
+            setTimeout(() => { stage++; initGame(); }, 1000);
         }
     }
 
     floatingTexts.forEach((t, i) => { t.y -= 1; t.life -= 0.02; if (t.life <= 0) floatingTexts.splice(i, 1); });
     document.getElementById('stageNum').innerText = stage;
     document.getElementById('scoreVal').innerText = score;
-    document.getElementById('bonusVal').innerText = Math.max(0, Math.floor(stageBonus));
+    document.getElementById('bonusVal').innerText = Math.floor(stageEnergy);
 }
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     particles.forEach(p => {
         ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
@@ -293,25 +285,39 @@ function draw() {
     });
 
     if (player.visible) {
+        // 残像
+        player.trail.forEach((t, i) => {
+            ctx.globalAlpha = 0.3 * (i / player.trail.length);
+            ctx.beginPath(); ctx.arc(t.x, t.y, player.r * (0.5 + i/player.trail.length*0.5), 0, Math.PI * 2);
+            ctx.fillStyle = player.color; ctx.fill();
+        });
+        ctx.globalAlpha = 1.0;
+
         ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
         ctx.fillStyle = player.color; ctx.shadowBlur = 15; ctx.shadowColor = player.color; ctx.fill();
         ctx.shadowBlur = 0;
+
+        const barW = player.r * 2.5;
+        const barH = 5;
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW, barH);
+        ctx.fillStyle = stageEnergy > 20 ? '#00d2ff' : '#ff4b2b';
+        ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW * (stageEnergy / 100), barH);
     }
 
     floatingTexts.forEach(t => {
         ctx.fillStyle = `rgba(255, 75, 43, ${t.life})`;
         ctx.font = `bold ${S*0.04}px Arial`; ctx.fillText(t.text, t.x, t.y);
     });
-
     requestAnimationFrame(() => { update(); draw(); });
 }
 
 function gameOver() {
-    if (gameState === 'animating') return;
+    if (gameState !== 'playing') return;
     gameState = 'animating';
     player.visible = false;
-    createExplosion(player.x, player.y, player.color, 40);
-    setTimeout(() => showResult("GAME OVER"), 1500);
+    createExplosion(player.x, player.y, player.color, 50);
+    setTimeout(() => showResult("GAME OVER"), 1200);
 }
 
 function showResult(msg) {
@@ -319,26 +325,26 @@ function showResult(msg) {
     document.getElementById('resultMsg').innerText = msg;
     document.getElementById('finalScoreVal').innerText = score;
     document.getElementById('overlay').style.display = 'flex';
-    
-    const gameUrl = "https://sin1.studio/Planet-Game/";
-    const tweetText = encodeURIComponent(`Planet Gameでスコア ${score} を獲得！ (STAGE ${stage}/5)\n${gameUrl}\n#PlanetGame`);
-    const tweetUrl = `https://twitter.com/intent/tweet?text=${tweetText}`;
-    document.getElementById('shareBtn').onclick = () => window.open(tweetUrl, '_blank');
+    const tweetText = encodeURIComponent(`ORBITAL_DRIFTでスコア ${score} を獲得！ (STAGE ${stage}/5)\nhttps://sin1.studio/Planet-Game/\n#ORBITAL_DRIFT`);
+    document.getElementById('shareBtn').onclick = () => window.open(`https://twitter.com/intent/tweet?text=${tweetText}`, '_blank');
 }
 
 function restart() {
-    stage = 1; score = 0; gameState = 'playing';
-    document.getElementById('overlay').style.display = 'none';
+    stage = 1; score = 0;
     initGame();
+    document.getElementById('overlay').style.display = 'none';
 }
 
 const handleInput = (e) => {
-    if (gameState !== 'playing') return;
+    if (gameState !== 'playing' || stageEnergy <= 0) return;
+    const rect = canvas.getBoundingClientRect();
     const x = e.touches ? e.touches[0].clientX : e.clientX;
     const y = e.touches ? e.touches[0].clientY : e.clientY;
-    stageBonus -= 10;
-    floatingTexts.push({ x: x, y: y, text: "-10", life: 1.0 });
-    player.targetX = x; player.targetY = y;
+    stageEnergy -= 10;
+    if (stageEnergy < 0) stageEnergy = 0;
+    floatingTexts.push({ x: x - rect.left, y: y - rect.top, text: "-10", life: 1.0 });
+    player.targetX = x - rect.left;
+    player.targetY = y - rect.top;
 };
 
 window.addEventListener('mousedown', handleInput);
