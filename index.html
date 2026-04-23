@@ -3,51 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>衛星回避ゲーム - Score Challenge</title>
+    <title>Planet Game</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #0f3460; font-family: 'Arial', sans-serif; color: white; }
+        body { margin: 0; overflow: hidden; background: #050510; font-family: 'Arial', sans-serif; color: white; }
         canvas { display: block; }
-        
-        /* UIレイアウト */
-        #ui {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; padding: 15px; box-sizing: border-box;
-        }
-        .hud { display: flex; justify-content: space-between; font-size: 20px; font-weight: bold; }
-        .bonus-timer { color: #ff4b2b; font-size: 24px; text-align: center; margin-top: 10px; }
-        
-        /* オーバーレイ */
+        #ui { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; padding: 15px; box-sizing: border-box; z-index: 5; }
+        .hud { display: flex; justify-content: space-between; align-items: center; font-size: clamp(14px, 4vw, 18px); font-weight: bold; max-width: 800px; margin: 0 auto; }
+        .hud-item { flex: 1; text-align: center; }
+        .hud-item:first-child { text-align: left; }
+        .hud-item:last-child { text-align: right; }
+        #bonusVal { color: #ff4b2b; font-size: 1.2em; }
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); display: none;
+            background: rgba(0,0,0,0.85); display: none;
             flex-direction: column; align-items: center; justify-content: center;
-            pointer-events: auto;
+            pointer-events: auto; z-index: 10;
         }
         .final-score { font-size: 48px; color: #ffea00; margin-bottom: 20px; }
-        .btn {
-            padding: 15px 30px; margin: 10px; border: none; border-radius: 25px;
-            font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s;
-        }
+        .btn { padding: 15px 40px; margin: 10px; border: none; border-radius: 30px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s; }
         .btn-retry { background: #00d2ff; color: #fff; }
         .btn-share { background: #1DA1F2; color: #fff; }
-        .btn:hover { transform: scale(1.1); }
     </style>
 </head>
 <body>
 
 <div id="ui">
     <div class="hud">
-        <div>STAGE: <span id="stageNum">1</span></div>
-        <div>TOTAL SCORE: <span id="totalScore">0</span></div>
+        <div class="hud-item">STAGE: <span id="stageNum">1</span> / 5</div>
+        <div class="hud-item">BONUS: <span id="bonusVal">100</span></div>
+        <div class="hud-item">SCORE: <span id="scoreVal">0</span></div>
     </div>
-    <div class="bonus-timer">TIME (BONUS): <span id="bonusVal">100</span></div>
 </div>
 
 <div id="overlay">
     <h1 id="resultMsg">GAME OVER</h1>
     <div class="final-score">SCORE: <span id="finalScoreVal">0</span></div>
-    <button class="btn btn-retry" onclick="restart()">もう一度プレイ</button>
-    <button class="btn btn-share" id="shareBtn">スコアをシェア</button>
+    <button class="btn btn-retry" onclick="restart()">もう一度挑戦</button>
+    <button class="btn btn-share" id="shareBtn">結果をシェア</button>
 </div>
 
 <canvas id="gameCanvas"></canvas>
@@ -56,196 +48,294 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// ゲーム状態
 let stage = 1;
-let totalScore = 0;
+let score = 0;
 let stageBonus = 100;
-let gameState = 'playing'; // 'playing', 'gameover'
+let gameState = 'playing';
 let enemies = [];
-let floatingTexts = []; // 「-10」エフェクト用
+let particles = [];
+let floatingTexts = [];
+let boss = null;
+let isLandscape = true;
+let S = 0;
 
-const player = { x: 0, y: 0, r: 15, color: '#00d2ff', targetX: 0, targetY: 0, speed: 0.1 };
-const goal = { x: 0, y: 0, r: 30, color: '#ffea00' };
-const SAFE_ZONE_WIDTH = 150;
+const player = { x: 0, y: 0, r: 0, color: '#00d2ff', targetX: 0, targetY: 0, speed: 0.08, visible: true };
+const goal = { x: 0, y: 0, r: 0, color: '#ffea00', visible: true };
 
 function initGame() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    isLandscape = canvas.width > canvas.height;
+    S = Math.min(canvas.width, canvas.height);
 
-    player.x = 60;
-    player.y = canvas.height / 2;
-    player.targetX = player.x;
-    player.targetY = player.y;
-    goal.x = canvas.width - 60;
-    goal.y = canvas.height / 2;
+    player.r = S * 0.035;
+    goal.r = S * 0.06;
 
-    stageBonus = stage * 100;
-    
-    // 敵の生成 (ステージ1は3体、以降+1)
-    enemies = [];
-    for (let i = 0; i < stage + 2; i++) {
-        enemies.push(createEnemy());
+    const offsetFactor = (stage % 3) * 0.25 + 0.25;
+    if (isLandscape) {
+        player.x = canvas.width * 0.1;
+        player.y = canvas.height * offsetFactor;
+        goal.x = canvas.width * 0.9;
+        goal.y = canvas.height * (1 - offsetFactor);
+    } else {
+        player.x = canvas.width * offsetFactor;
+        player.y = canvas.height * 0.1;
+        goal.x = canvas.width * (1 - offsetFactor);
+        goal.y = canvas.height * 0.9;
     }
-    floatingTexts = [];
+    player.targetX = player.x; player.targetY = player.y;
+    player.visible = true; goal.visible = true;
+    stageBonus = 100;
+    enemies = []; boss = null; particles = [];
+
+    if (stage < 5) {
+        setupEnemies();
+    } else {
+        createBoss();
+    }
 }
 
-function createEnemy() {
+function setupEnemies() {
+    const enemyCount = 4 + (stage - 1) * 2;
+    const safeCircleR = S * 0.55; // 円形安全半径をさらに拡大
+    const rectSafeMargin = isLandscape ? canvas.width * 0.2 : canvas.height * 0.2; // 矩形安全エリアの幅
+
+    // 確定エネミー（最短直線上の真ん中付近）
+    const midX = (player.x + goal.x) / 2;
+    const midY = (player.y + goal.y) / 2;
+    enemies.push(createEnemyObject(midX, midY));
+
+    let attempts = 0;
+    while (enemies.length < enemyCount && attempts < 500) {
+        const ex = Math.random() * canvas.width;
+        const ey = Math.random() * canvas.height;
+
+        // ハイブリッド安全判定（スタート・ゴール両方）
+        const distToStart = Math.hypot(ex - player.x, ey - player.y);
+        const distToGoal = Math.hypot(ex - goal.x, ey - goal.y);
+
+        // 円形判定
+        const inCircleSafe = distToStart < safeCircleR || distToGoal < S * 0.3;
+        
+        // 矩形判定（横長なら左右、縦長なら上下の端を禁止）
+        const inRectSafe = isLandscape 
+            ? (ex < rectSafeMargin || ex > canvas.width - rectSafeMargin)
+            : (ey < rectSafeMargin || ey > canvas.height - rectSafeMargin);
+
+        if (!inCircleSafe && !inRectSafe) {
+            enemies.push(createEnemyObject(ex, ey));
+        }
+        attempts++;
+    }
+}
+
+function createEnemyObject(x, y) {
     return {
-        x: SAFE_ZONE_WIDTH + Math.random() * (canvas.width - SAFE_ZONE_WIDTH * 2),
-        y: Math.random() * canvas.height,
-        vx: 0, vy: 0, r: 18, orbitR: 50 + Math.random() * 20,
+        x, y, vx: 0, vy: 0, 
+        r: S * 0.04, 
+        orbitR: S * 0.12 + Math.random() * (S * 0.05),
         angle: Math.random() * Math.PI * 2,
         rotSpeed: 0.03 + (stage * 0.005),
-        satelliteR: 8
+        satelliteR: S * 0.018
     };
 }
 
+function createBoss() {
+    boss = { 
+        x: goal.x, y: goal.y, r: goal.r * 2.5, visible: true, 
+        tx: goal.x, ty: goal.y, satellites: [] 
+    };
+    for (let i = 0; i < 8; i++) {
+        boss.satellites.push({
+            orbitR: S * 0.2 + Math.random() * (S * 0.15),
+            angle: Math.random() * Math.PI * 2,
+            rotSpeed: (Math.random() - 0.5) * 0.06,
+            size: S * 0.02 + Math.random() * (S * 0.01)
+        });
+    }
+}
+
+function createExplosion(x, y, color, count = 20) {
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x, y, vx: (Math.random() - 0.5) * S * 0.03, vy: (Math.random() - 0.5) * S * 0.03,
+            life: 1.0, color: color, r: S * 0.01
+        });
+    }
+}
+
 function update() {
+    particles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy; p.life -= 0.02;
+        if (p.life <= 0) particles.splice(i, 1);
+    });
+
     if (gameState !== 'playing') return;
 
-    // 時間経過でスコア減少 (1フレーム 0.05ずつ = 1秒間に約3ポイント減少)
-    stageBonus -= 0.05;
-    if (stageBonus <= 0) {
-        stageBonus = 0;
-        gameOver();
-    }
+    stageBonus -= 0.04;
+    if (stageBonus <= 0) { stageBonus = 0; gameOver(); }
 
-    // 自機の移動
     player.x += (player.targetX - player.x) * player.speed;
     player.y += (player.targetY - player.y) * player.speed;
 
-    // ゴール判定
-    if (Math.hypot(player.x - goal.x, player.y - goal.y) < player.r + goal.r) {
-        totalScore += Math.floor(stageBonus);
-        stage++;
-        initGame();
-    }
+    const sensorDist = S * 0.8;
 
-    // 敵の挙動
     enemies.forEach((e, i) => {
-        // 追尾
-        const angle = Math.atan2(player.y - e.y, player.x - e.x);
-        const attract = 0.02 + (stage * 0.01);
-        e.vx += Math.cos(angle) * attract;
-        e.vy += Math.sin(angle) * attract;
+        const distP = Math.hypot(player.x - e.x, player.y - e.y);
+        
+        // 1. 自機への追尾（一定距離内のみ）
+        if (distP < sensorDist) {
+            const angle = Math.atan2(player.y - e.y, player.x - e.x);
+            e.vx += Math.cos(angle) * (S * 0.00005 * stage + 0.01);
+            e.vy += Math.sin(angle) * (S * 0.00005 * stage + 0.01);
+        }
 
-        // 反発
+        // 2. 敵機同士の常時反発（常に全エネミー間で計算）
         enemies.forEach((other, j) => {
             if (i === j) return;
             const d = Math.hypot(e.x - other.x, e.y - other.y);
-            if (d < 80) {
+            const repelDist = S * 0.25; 
+            if (d < repelDist) {
                 const ang = Math.atan2(e.y - other.y, e.x - other.x);
-                e.vx += Math.cos(ang) * (stage * 0.03);
-                e.vy += Math.sin(ang) * (stage * 0.03);
+                const force = (repelDist - d) / repelDist;
+                e.vx += Math.cos(ang) * force * 0.6;
+                e.vy += Math.sin(ang) * force * 0.6;
             }
         });
 
         e.vx *= 0.95; e.vy *= 0.95;
         e.x += e.vx; e.y += e.vy;
 
-        // 境界制限
-        if (e.x < SAFE_ZONE_WIDTH) e.x = SAFE_ZONE_WIDTH;
-        if (e.x > canvas.width - SAFE_ZONE_WIDTH) e.x = canvas.width - SAFE_ZONE_WIDTH;
+        // 画面の縁で跳ね返る
+        if(e.x < 0 || e.x > canvas.width) e.vx *= -1;
+        if(e.y < 0 || e.y > canvas.height) e.vy *= -1;
 
         e.angle += e.rotSpeed;
         const sx = e.x + Math.cos(e.angle) * e.orbitR;
         const sy = e.y + Math.sin(e.angle) * e.orbitR;
+        if (distP < player.r + e.r || Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR) gameOver();
+    });
 
-        if (Math.hypot(player.x - e.x, player.y - e.y) < player.r + e.r || 
-            Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR) {
-            gameOver();
+    if (boss) {
+        if (Math.hypot(boss.x - boss.tx, boss.y - boss.ty) < 20) {
+            boss.tx = Math.random() * (canvas.width - S * 0.4) + S * 0.2;
+            boss.ty = Math.random() * (canvas.height - S * 0.4) + S * 0.2;
         }
-    });
+        boss.x += (boss.tx - boss.x) * 0.005; boss.y += (boss.ty - boss.y) * 0.005;
+        boss.satellites.forEach(s => {
+            s.angle += s.rotSpeed;
+            const sx = boss.x + Math.cos(s.angle) * s.orbitR;
+            const sy = boss.y + Math.sin(s.angle) * s.orbitR;
+            if (Math.hypot(player.x - sx, player.y - sy) < player.r + s.size) gameOver();
+        });
+        if (Math.hypot(player.x - boss.x, player.y - boss.y) < player.r + boss.r) {
+            score += Math.floor(stageBonus) + 3000;
+            boss.visible = false;
+            createExplosion(boss.x, boss.y, goal.color, 80);
+            gameState = 'animating';
+            setTimeout(() => showResult("MISSION COMPLETE!"), 1500);
+        }
+    } else {
+        if (Math.hypot(player.x - goal.x, player.y - goal.y) < player.r + goal.r) {
+            score += Math.floor(stageBonus);
+            goal.visible = false;
+            createExplosion(goal.x, goal.y, goal.color, 40);
+            gameState = 'animating';
+            setTimeout(() => { stage++; gameState = 'playing'; initGame(); }, 1000);
+        }
+    }
 
-    // フローティングテキストの更新
-    floatingTexts.forEach((t, i) => {
-        t.y -= 1;
-        t.life -= 0.02;
-        if (t.life <= 0) floatingTexts.splice(i, 1);
-    });
-
-    // UI更新
+    floatingTexts.forEach((t, i) => { t.y -= 1; t.life -= 0.02; if (t.life <= 0) floatingTexts.splice(i, 1); });
     document.getElementById('stageNum').innerText = stage;
-    document.getElementById('totalScore').innerText = totalScore;
-    document.getElementById('bonusVal').innerText = Math.floor(stageBonus);
+    document.getElementById('scoreVal').innerText = score;
+    document.getElementById('bonusVal').innerText = Math.max(0, Math.floor(stageBonus));
 }
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // ゴール
-    ctx.beginPath();
-    ctx.arc(goal.x, goal.y, goal.r, 0, Math.PI * 2);
-    ctx.fillStyle = goal.color;
-    ctx.fill();
+    particles.forEach(p => {
+        ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.globalAlpha = 1.0;
 
-    // 敵
+    if (stage < 5 && goal.visible) {
+        ctx.beginPath(); ctx.arc(goal.x, goal.y, goal.r, 0, Math.PI * 2);
+        ctx.fillStyle = goal.color; ctx.fill();
+    } else if (boss && boss.visible) {
+        ctx.beginPath(); ctx.arc(boss.x, boss.y, boss.r, 0, Math.PI * 2);
+        ctx.fillStyle = goal.color; ctx.shadowBlur = 30; ctx.shadowColor = goal.color; ctx.fill();
+        ctx.shadowBlur = 0;
+        boss.satellites.forEach(s => {
+            const sx = boss.x + Math.cos(s.angle) * s.orbitR;
+            const sy = boss.y + Math.sin(s.angle) * s.orbitR;
+            ctx.beginPath(); ctx.arc(sx, sy, s.size, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff416c'; ctx.fill();
+        });
+    }
+
     enemies.forEach(e => {
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
-        ctx.fillStyle = '#ff4b2b';
-        ctx.fill();
-
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff4b2b'; ctx.fill();
         const sx = e.x + Math.cos(e.angle) * e.orbitR;
         const sy = e.y + Math.sin(e.angle) * e.orbitR;
-        ctx.beginPath();
-        ctx.arc(sx, sy, e.satelliteR, 0, Math.PI * 2);
-        ctx.fillStyle = '#ff416c';
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(sx, sy, e.satelliteR, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff416c'; ctx.fill();
     });
 
-    // 自機
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-    ctx.fillStyle = player.color;
-    ctx.fill();
+    if (player.visible) {
+        ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+        ctx.fillStyle = player.color; ctx.shadowBlur = 15; ctx.shadowColor = player.color; ctx.fill();
+        ctx.shadowBlur = 0;
+    }
 
-    // エフェクト描画
-    ctx.font = "bold 20px Arial";
     floatingTexts.forEach(t => {
         ctx.fillStyle = `rgba(255, 75, 43, ${t.life})`;
-        ctx.fillText(t.text, t.x, t.y);
+        ctx.font = `bold ${S*0.04}px Arial`; ctx.fillText(t.text, t.x, t.y);
     });
 
     requestAnimationFrame(() => { update(); draw(); });
 }
 
 function gameOver() {
+    if (gameState === 'animating') return;
+    gameState = 'animating';
+    player.visible = false;
+    createExplosion(player.x, player.y, player.color, 40);
+    setTimeout(() => showResult("GAME OVER"), 1500);
+}
+
+function showResult(msg) {
     gameState = 'gameover';
-    document.getElementById('finalScoreVal').innerText = totalScore;
+    document.getElementById('resultMsg').innerText = msg;
+    document.getElementById('finalScoreVal').innerText = score;
     document.getElementById('overlay').style.display = 'flex';
     
-    // シェアボタンの設定
-    const tweetText = encodeURIComponent(`衛星回避ゲームでスコア ${totalScore} を獲得しました！ (STAGE ${stage})`);
+    const gameUrl = "https://sin1.studio/Planet-Game/";
+    const tweetText = encodeURIComponent(`Planet Gameでスコア ${score} を獲得！ (STAGE ${stage}/5)\n${gameUrl}\n#PlanetGame`);
     const tweetUrl = `https://twitter.com/intent/tweet?text=${tweetText}`;
     document.getElementById('shareBtn').onclick = () => window.open(tweetUrl, '_blank');
 }
 
 function restart() {
-    stage = 1;
-    totalScore = 0;
-    gameState = 'playing';
+    stage = 1; score = 0; gameState = 'playing';
     document.getElementById('overlay').style.display = 'none';
     initGame();
 }
 
 const handleInput = (e) => {
     if (gameState !== 'playing') return;
-    
     const x = e.touches ? e.touches[0].clientX : e.clientX;
     const y = e.touches ? e.touches[0].clientY : e.clientY;
-
-    // ペナルティ処理
     stageBonus -= 10;
     floatingTexts.push({ x: x, y: y, text: "-10", life: 1.0 });
-
-    player.targetX = x;
-    player.targetY = y;
+    player.targetX = x; player.targetY = y;
 };
 
 window.addEventListener('mousedown', handleInput);
 window.addEventListener('touchstart', (e) => { handleInput(e); e.preventDefault(); }, { passive: false });
-window.addEventListener('resize', () => { initGame(); });
+window.addEventListener('resize', initGame);
 
 initGame();
 draw();
