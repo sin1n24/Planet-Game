@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>衛星回避ゲーム - Score Challenge</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0f3460; font-family: 'Arial', sans-serif; color: white; }
+        canvas { display: block; }
+        
+        /* UIレイアウト */
+        #ui {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; padding: 15px; box-sizing: border-box;
+        }
+        .hud { display: flex; justify-content: space-between; font-size: 20px; font-weight: bold; }
+        .bonus-timer { color: #ff4b2b; font-size: 24px; text-align: center; margin-top: 10px; }
+        
+        /* オーバーレイ */
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            pointer-events: auto;
+        }
+        .final-score { font-size: 48px; color: #ffea00; margin-bottom: 20px; }
+        .btn {
+            padding: 15px 30px; margin: 10px; border: none; border-radius: 25px;
+            font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s;
+        }
+        .btn-retry { background: #00d2ff; color: #fff; }
+        .btn-share { background: #1DA1F2; color: #fff; }
+        .btn:hover { transform: scale(1.1); }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div class="hud">
+        <div>STAGE: <span id="stageNum">1</span></div>
+        <div>TOTAL SCORE: <span id="totalScore">0</span></div>
+    </div>
+    <div class="bonus-timer">TIME (BONUS): <span id="bonusVal">100</span></div>
+</div>
+
+<div id="overlay">
+    <h1 id="resultMsg">GAME OVER</h1>
+    <div class="final-score">SCORE: <span id="finalScoreVal">0</span></div>
+    <button class="btn btn-retry" onclick="restart()">もう一度プレイ</button>
+    <button class="btn btn-share" id="shareBtn">スコアをシェア</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// ゲーム状態
+let stage = 1;
+let totalScore = 0;
+let stageBonus = 100;
+let gameState = 'playing'; // 'playing', 'gameover'
+let enemies = [];
+let floatingTexts = []; // 「-10」エフェクト用
+
+const player = { x: 0, y: 0, r: 15, color: '#00d2ff', targetX: 0, targetY: 0, speed: 0.1 };
+const goal = { x: 0, y: 0, r: 30, color: '#ffea00' };
+const SAFE_ZONE_WIDTH = 150;
+
+function initGame() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    player.x = 60;
+    player.y = canvas.height / 2;
+    player.targetX = player.x;
+    player.targetY = player.y;
+    goal.x = canvas.width - 60;
+    goal.y = canvas.height / 2;
+
+    stageBonus = stage * 100;
+    
+    // 敵の生成 (ステージ1は3体、以降+1)
+    enemies = [];
+    for (let i = 0; i < stage + 2; i++) {
+        enemies.push(createEnemy());
+    }
+    floatingTexts = [];
+}
+
+function createEnemy() {
+    return {
+        x: SAFE_ZONE_WIDTH + Math.random() * (canvas.width - SAFE_ZONE_WIDTH * 2),
+        y: Math.random() * canvas.height,
+        vx: 0, vy: 0, r: 18, orbitR: 50 + Math.random() * 20,
+        angle: Math.random() * Math.PI * 2,
+        rotSpeed: 0.03 + (stage * 0.005),
+        satelliteR: 8
+    };
+}
+
+function update() {
+    if (gameState !== 'playing') return;
+
+    // 時間経過でスコア減少 (1フレーム 0.05ずつ = 1秒間に約3ポイント減少)
+    stageBonus -= 0.05;
+    if (stageBonus <= 0) {
+        stageBonus = 0;
+        gameOver();
+    }
+
+    // 自機の移動
+    player.x += (player.targetX - player.x) * player.speed;
+    player.y += (player.targetY - player.y) * player.speed;
+
+    // ゴール判定
+    if (Math.hypot(player.x - goal.x, player.y - goal.y) < player.r + goal.r) {
+        totalScore += Math.floor(stageBonus);
+        stage++;
+        initGame();
+    }
+
+    // 敵の挙動
+    enemies.forEach((e, i) => {
+        // 追尾
+        const angle = Math.atan2(player.y - e.y, player.x - e.x);
+        const attract = 0.02 + (stage * 0.01);
+        e.vx += Math.cos(angle) * attract;
+        e.vy += Math.sin(angle) * attract;
+
+        // 反発
+        enemies.forEach((other, j) => {
+            if (i === j) return;
+            const d = Math.hypot(e.x - other.x, e.y - other.y);
+            if (d < 80) {
+                const ang = Math.atan2(e.y - other.y, e.x - other.x);
+                e.vx += Math.cos(ang) * (stage * 0.03);
+                e.vy += Math.sin(ang) * (stage * 0.03);
+            }
+        });
+
+        e.vx *= 0.95; e.vy *= 0.95;
+        e.x += e.vx; e.y += e.vy;
+
+        // 境界制限
+        if (e.x < SAFE_ZONE_WIDTH) e.x = SAFE_ZONE_WIDTH;
+        if (e.x > canvas.width - SAFE_ZONE_WIDTH) e.x = canvas.width - SAFE_ZONE_WIDTH;
+
+        e.angle += e.rotSpeed;
+        const sx = e.x + Math.cos(e.angle) * e.orbitR;
+        const sy = e.y + Math.sin(e.angle) * e.orbitR;
+
+        if (Math.hypot(player.x - e.x, player.y - e.y) < player.r + e.r || 
+            Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR) {
+            gameOver();
+        }
+    });
+
+    // フローティングテキストの更新
+    floatingTexts.forEach((t, i) => {
+        t.y -= 1;
+        t.life -= 0.02;
+        if (t.life <= 0) floatingTexts.splice(i, 1);
+    });
+
+    // UI更新
+    document.getElementById('stageNum').innerText = stage;
+    document.getElementById('totalScore').innerText = totalScore;
+    document.getElementById('bonusVal').innerText = Math.floor(stageBonus);
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // ゴール
+    ctx.beginPath();
+    ctx.arc(goal.x, goal.y, goal.r, 0, Math.PI * 2);
+    ctx.fillStyle = goal.color;
+    ctx.fill();
+
+    // 敵
+    enemies.forEach(e => {
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff4b2b';
+        ctx.fill();
+
+        const sx = e.x + Math.cos(e.angle) * e.orbitR;
+        const sy = e.y + Math.sin(e.angle) * e.orbitR;
+        ctx.beginPath();
+        ctx.arc(sx, sy, e.satelliteR, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff416c';
+        ctx.fill();
+    });
+
+    // 自機
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+    ctx.fillStyle = player.color;
+    ctx.fill();
+
+    // エフェクト描画
+    ctx.font = "bold 20px Arial";
+    floatingTexts.forEach(t => {
+        ctx.fillStyle = `rgba(255, 75, 43, ${t.life})`;
+        ctx.fillText(t.text, t.x, t.y);
+    });
+
+    requestAnimationFrame(() => { update(); draw(); });
+}
+
+function gameOver() {
+    gameState = 'gameover';
+    document.getElementById('finalScoreVal').innerText = totalScore;
+    document.getElementById('overlay').style.display = 'flex';
+    
+    // シェアボタンの設定
+    const tweetText = encodeURIComponent(`衛星回避ゲームでスコア ${totalScore} を獲得しました！ (STAGE ${stage})`);
+    const tweetUrl = `https://twitter.com/intent/tweet?text=${tweetText}`;
+    document.getElementById('shareBtn').onclick = () => window.open(tweetUrl, '_blank');
+}
+
+function restart() {
+    stage = 1;
+    totalScore = 0;
+    gameState = 'playing';
+    document.getElementById('overlay').style.display = 'none';
+    initGame();
+}
+
+const handleInput = (e) => {
+    if (gameState !== 'playing') return;
+    
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+
+    // ペナルティ処理
+    stageBonus -= 10;
+    floatingTexts.push({ x: x, y: y, text: "-10", life: 1.0 });
+
+    player.targetX = x;
+    player.targetY = y;
+};
+
+window.addEventListener('mousedown', handleInput);
+window.addEventListener('touchstart', (e) => { handleInput(e); e.preventDefault(); }, { passive: false });
+window.addEventListener('resize', () => { initGame(); });
+
+initGame();
+draw();
+</script>
+</body>
+</html>
