@@ -47,6 +47,8 @@
             flex-direction: column; align-items: center; justify-content: center;
             pointer-events: auto; z-index: 100;
         }
+        .game-title { font-size: 24px; color: #00d2ff; margin-bottom: 5px; font-weight: bold; }
+        .game-version { font-size: 14px; color: #666; margin-bottom: 30px; }
         .final-score { font-size: 48px; color: #ffea00; margin-bottom: 20px; }
         .btn { 
             padding: 15px 40px; margin: 10px; border: none; border-radius: 30px; 
@@ -86,6 +88,8 @@
 </div>
 
 <div id="overlay">
+    <div class="game-title">ORBITAL_DRIFT</div>
+    <div class="game-version">v1.1.0</div>
     <h1 id="resultMsg">GAME OVER</h1>
     <div class="final-score">SCORE: <span id="finalScoreVal">0</span></div>
     <button class="btn btn-retry" id="retryBtn">Retry</button>
