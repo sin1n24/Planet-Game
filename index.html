@@ -89,7 +89,7 @@
 
 <div id="overlay">
     <div class="game-title">ORBITAL_DRIFT</div>
-    <div class="game-version">v1.1.0</div>
+    <div class="game-version">v1.2.0</div>
     <h1 id="resultMsg">GAME OVER</h1>
     <div class="final-score">SCORE: <span id="finalScoreVal">0</span></div>
     <button class="btn btn-retry" id="retryBtn">Retry</button>
@@ -122,7 +122,7 @@ let S = 0;
 const player = { 
     x: 0, y: 0, r: 0, color: '#00d2ff', 
     targetX: 0, targetY: 0, speed: 0.08, visible: true,
-    trail: [], invincibleTime: 0
+    trail: [], invincibleTime: 0, vx: 0, vy: 0
 };
 const goal = { x: 0, y: 0, r: 0, color: '#ffea00', visible: true };
 
@@ -142,6 +142,7 @@ function initGame() {
         goal.x = canvas.width * (1 - offsetFactor); goal.y = canvas.height * 0.9;
     }
     player.targetX = player.x; player.targetY = player.y;
+    player.vx = 0; player.vy = 0;
     player.visible = true; goal.visible = true; player.trail = [];
     player.invincibleTime = 0;
     stageEnergy = 200;
@@ -192,7 +193,7 @@ function createExplosion(x, y, color, count = 20) {
     for (let i = 0; i < count; i++) particles.push({ x, y, vx: (Math.random() - 0.5) * S * 0.04, vy: (Math.random() - 0.5) * S * 0.04, life: 1.0, color: color, r: S * 0.01 });
 }
 
-function handleHit(obj) {
+function handleHit(sx, sy, obj) {
     if (player.invincibleTime > 0 || gameState !== 'playing') return;
     stageEnergy -= 100;
     player.invincibleTime = 60;
@@ -202,6 +203,15 @@ function handleHit(obj) {
     if (stageEnergy <= 0) {
         stageEnergy = 0;
         gameOver();
+    } else {
+        const angle = Math.atan2(player.y - sy, player.x - sx);
+        const force = S * 0.05;
+        player.vx = Math.cos(angle) * force;
+        player.vy = Math.sin(angle) * force;
+        if (obj && 'vx' in obj) {
+            obj.vx = -Math.cos(angle) * force * 0.5;
+            obj.vy = -Math.sin(angle) * force * 0.5;
+        }
     }
 }
 
@@ -210,8 +220,9 @@ function update() {
     if (player.invincibleTime > 0) player.invincibleTime--;
     if (gameState !== 'playing') return;
     if (stageEnergy > 0) stageEnergy -= 0.04; else stageEnergy = 0;
-    player.x += (player.targetX - player.x) * player.speed;
-    player.y += (player.targetY - player.y) * player.speed;
+    player.x += (player.targetX - player.x) * player.speed + player.vx;
+    player.y += (player.targetY - player.y) * player.speed + player.vy;
+    player.vx *= 0.92; player.vy *= 0.92;
     player.trail.push({x: player.x, y: player.y});
     if (player.trail.length > 8) player.trail.shift();
     const sensorDist = S * 0.8;
@@ -246,8 +257,8 @@ function update() {
         }
         const distP = Math.hypot(player.x - e.x, player.y - e.y);
         const sx = e.x + Math.cos(e.angle) * e.orbitR; const sy = e.y + Math.sin(e.angle) * e.orbitR;
-        if (player.visible && distP < player.r + e.r) handleHit(e);
-        else if (player.visible && Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR) handleHit(e);
+        if (player.visible && distP < player.r + e.r) handleHit(e.x, e.y, e);
+        else if (player.visible && Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR) handleHit(sx, sy, e);
     });
     if (boss) {
         if (boss.stunTime > 0) boss.stunTime--;
@@ -256,7 +267,7 @@ function update() {
             boss.x += (boss.tx - boss.x) * 0.02; boss.y += (boss.ty - boss.y) * 0.02;
             if (stageEnergy === 0) { const angle = Math.atan2(player.y - boss.y, player.x - boss.x); boss.x += Math.cos(angle) * 3.0; boss.y += Math.sin(angle) * 3.0; }
         }
-        boss.satellites.forEach(s => { if (s.stunTime > 0) s.stunTime--; else s.angle += s.rotSpeed; const sx = boss.x + Math.cos(s.angle) * s.orbitR; const sy = boss.y + Math.sin(s.angle) * s.orbitR; if (player.visible && Math.hypot(player.x - sx, player.y - sy) < player.r + s.size) handleHit(s); });
+        boss.satellites.forEach(s => { if (s.stunTime > 0) s.stunTime--; else s.angle += s.rotSpeed; const sx = boss.x + Math.cos(s.angle) * s.orbitR; const sy = boss.y + Math.sin(s.angle) * s.orbitR; if (player.visible && Math.hypot(player.x - sx, player.y - sy) < player.r + s.size) handleHit(sx, sy, s); });
         if (player.visible && Math.hypot(player.x - boss.x, player.y - boss.y) < player.r + boss.r) { score += Math.floor(stageEnergy); boss.visible = false; createExplosion(boss.x, boss.y, goal.color, 80); gameState = 'animating'; setTimeout(() => { if(stage === 5) showResult("MISSION COMPLETE!"); }, 1200); }
     } else {
         if (player.visible && Math.hypot(player.x - goal.x, player.y - goal.y) < player.r + goal.r) { score += Math.floor(stageEnergy); goal.visible = false; createExplosion(goal.x, goal.y, goal.color, 40); gameState = 'animating'; setTimeout(() => { stage++; initGame(); }, 1000); }
