@@ -89,7 +89,7 @@
 
 <div id="overlay">
     <div class="game-title">ORBITAL_DRIFT</div>
-    <div class="game-version">v1.2.2</div>
+    <div class="game-version">v1.2.3</div>
     <h1 id="resultMsg">GAME OVER</h1>
     <div class="final-score">SCORE: <span id="finalScoreVal">0</span></div>
     <button class="btn btn-retry" id="retryBtn">Retry</button>
@@ -196,7 +196,7 @@ function createExplosion(x, y, color, count = 20) {
 function handleHit(sx, sy, obj) {
     if (player.invincibleTime > 0 || gameState !== 'playing') return;
     stageEnergy -= 100;
-    player.invincibleTime = 60;
+    player.invincibleTime = 10;
     if (obj) obj.stunTime = 120;
     createExplosion(player.x, player.y, '#ff4b2b', 30);
     floatingTexts.push({ x: player.x, y: player.y - 20, text: "-100", life: 1.0 });
@@ -227,6 +227,8 @@ function update() {
     if (player.knockbackTime > 0) {
         controlScale = 1.0 - (player.knockbackTime / 40);
         player.knockbackTime--;
+        player.targetX = player.x;
+        player.targetY = player.y;
     }
     player.x += (player.targetX - player.x) * player.speed * controlScale + player.vx;
     player.y += (player.targetY - player.y) * player.speed * controlScale + player.vy;
