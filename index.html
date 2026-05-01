@@ -122,7 +122,7 @@ let S = 0;
 const player = { 
     x: 0, y: 0, r: 0, color: '#00d2ff', 
     targetX: 0, targetY: 0, speed: 0.08, visible: true,
-    trail: []
+    trail: [], invincible: 0
 };
 const goal = { x: 0, y: 0, r: 0, color: '#ffea00', visible: true };
 
@@ -179,11 +179,11 @@ function setupEnemies() {
 }
 
 function createEnemyObject(x, y) {
-    return { x, y, vx: 0, vy: 0, r: S * 0.04, orbitR: S * 0.12 + Math.random() * (S * 0.05), angle: Math.random() * Math.PI * 2, rotSpeed: 0.02 + (stage * 0.003), satelliteR: S * 0.018 };
+    return { x, y, vx: 0, vy: 0, r: S * 0.04, orbitR: S * 0.12 + Math.random() * (S * 0.05), angle: Math.random() * Math.PI * 2, rotSpeed: 0.02 + (stage * 0.003), satelliteR: S * 0.018, stunned: 0 };
 }
 
 function createBoss() {
-    boss = { x: goal.x, y: goal.y, r: goal.r * 2.5, visible: true, tx: goal.x, ty: goal.y, satellites: [] };
+    boss = { x: goal.x, y: goal.y, r: goal.r * 2.5, visible: true, tx: goal.x, ty: goal.y, satellites: [], stunned: 0 };
     for (let i = 0; i < 8; i++) boss.satellites.push({ orbitR: S * 0.2 + Math.random() * (S * 0.15), angle: Math.random() * Math.PI * 2, rotSpeed: (Math.random() - 0.5) * 0.04, size: S * 0.02 + Math.random() * (S * 0.01) });
 }
 
@@ -191,9 +191,24 @@ function createExplosion(x, y, color, count = 20) {
     for (let i = 0; i < count; i++) particles.push({ x, y, vx: (Math.random() - 0.5) * S * 0.04, vy: (Math.random() - 0.5) * S * 0.04, life: 1.0, color: color, r: S * 0.01 });
 }
 
+function playerHit(enemy) {
+    if (player.invincible > 0) return;
+    stageEnergy -= 100;
+    if (stageEnergy <= 0) {
+        stageEnergy = 0;
+        gameOver();
+    } else {
+        player.invincible = 120;
+        if (enemy) enemy.stunned = 120;
+        createExplosion(player.x, player.y, '#ff4b2b', 30);
+        floatingTexts.push({ x: player.x, y: player.y - 20, text: "-100", life: 1.0 });
+    }
+}
+
 function update() {
     particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.02; if (p.life <= 0) particles.splice(i, 1); });
     if (gameState !== 'playing') return;
+    if (player.invincible > 0) player.invincible--;
     if (stageEnergy > 0) stageEnergy -= 0.04; else stageEnergy = 0;
     player.x += (player.targetX - player.x) * player.speed;
     player.y += (player.targetY - player.y) * player.speed;
@@ -203,9 +218,13 @@ function update() {
     let closestEnemy = null; let minD = Infinity;
     enemies.forEach(e => { const d = Math.hypot(player.x - e.x, player.y - e.y); if (d < minD) { minD = d; closestEnemy = e; } });
     enemies.forEach((e, i) => {
+        if (e.stunned > 0) {
+            e.stunned--;
+            e.vx *= 0.9; e.vy *= 0.9;
+        }
         const distP = Math.hypot(player.x - e.x, player.y - e.y);
         const isKiller = (stageEnergy === 0 && e === closestEnemy);
-        if (distP < sensorDist || isKiller) {
+        if ((distP < sensorDist || isKiller) && e.stunned === 0) {
             const angle = Math.atan2(player.y - e.y, player.x - e.x);
             let force = (S * 0.00004 * stage + 0.008);
             if (isKiller) force = 0.5;
@@ -222,14 +241,18 @@ function update() {
         }
         e.x += e.vx; e.y += e.vy;
         if(e.x < 0 || e.x > canvas.width) e.vx *= -1; if(e.y < 0 || e.y > canvas.height) e.vy *= -1;
-        e.angle += e.rotSpeed; const sx = e.x + Math.cos(e.angle) * e.orbitR; const sy = e.y + Math.sin(e.angle) * e.orbitR;
-        if (player.visible && (distP < player.r + e.r || Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR)) gameOver();
+        if (e.stunned === 0) e.angle += e.rotSpeed;
+        const sx = e.x + Math.cos(e.angle) * e.orbitR; const sy = e.y + Math.sin(e.angle) * e.orbitR;
+        if (player.visible && player.invincible === 0 && (distP < player.r + e.r || Math.hypot(player.x - sx, player.y - sy) < player.r + e.satelliteR)) playerHit(e);
     });
     if (boss) {
-        if (Math.hypot(boss.x - boss.tx, boss.y - boss.ty) < 20) { boss.tx = Math.random() * (canvas.width - S * 0.4) + S * 0.2; boss.ty = Math.random() * (canvas.height - S * 0.4) + S * 0.2; }
-        boss.x += (boss.tx - boss.x) * 0.02; boss.y += (boss.ty - boss.y) * 0.02;
-        if (stageEnergy === 0) { const angle = Math.atan2(player.y - boss.y, player.x - boss.x); boss.x += Math.cos(angle) * 3.0; boss.y += Math.sin(angle) * 3.0; }
-        boss.satellites.forEach(s => { s.angle += s.rotSpeed; const sx = boss.x + Math.cos(s.angle) * s.orbitR; const sy = boss.y + Math.sin(s.angle) * s.orbitR; if (player.visible && Math.hypot(player.x - sx, player.y - sy) < player.r + s.size) gameOver(); });
+        if (boss.stunned > 0) boss.stunned--;
+        else {
+            if (Math.hypot(boss.x - boss.tx, boss.y - boss.ty) < 20) { boss.tx = Math.random() * (canvas.width - S * 0.4) + S * 0.2; boss.ty = Math.random() * (canvas.height - S * 0.4) + S * 0.2; }
+            boss.x += (boss.tx - boss.x) * 0.02; boss.y += (boss.ty - boss.y) * 0.02;
+            if (stageEnergy === 0) { const angle = Math.atan2(player.y - boss.y, player.x - boss.x); boss.x += Math.cos(angle) * 3.0; boss.y += Math.sin(angle) * 3.0; }
+        }
+        boss.satellites.forEach(s => { if(boss.stunned === 0) s.angle += s.rotSpeed; const sx = boss.x + Math.cos(s.angle) * s.orbitR; const sy = boss.y + Math.sin(s.angle) * s.orbitR; if (player.visible && player.invincible === 0 && Math.hypot(player.x - sx, player.y - sy) < player.r + s.size) playerHit(boss); });
         if (player.visible && Math.hypot(player.x - boss.x, player.y - boss.y) < player.r + boss.r) { score += Math.floor(stageEnergy); boss.visible = false; createExplosion(boss.x, boss.y, goal.color, 80); gameState = 'animating'; setTimeout(() => { if(stage === 5) showResult("MISSION COMPLETE!"); }, 1200); }
     } else {
         if (player.visible && Math.hypot(player.x - goal.x, player.y - goal.y) < player.r + goal.r) { score += Math.floor(stageEnergy); goal.visible = false; createExplosion(goal.x, goal.y, goal.color, 40); gameState = 'animating'; setTimeout(() => { stage++; initGame(); }, 1000); }
@@ -246,8 +269,10 @@ function draw() {
     else if (boss && boss.visible) { ctx.beginPath(); ctx.arc(boss.x, boss.y, boss.r, 0, Math.PI * 2); ctx.fillStyle = goal.color; ctx.shadowBlur = 30; ctx.shadowColor = goal.color; ctx.fill(); ctx.shadowBlur = 0; boss.satellites.forEach(s => { const sx = boss.x + Math.cos(s.angle) * s.orbitR; const sy = boss.y + Math.sin(s.angle) * s.orbitR; ctx.beginPath(); ctx.arc(sx, sy, s.size, 0, Math.PI * 2); ctx.fillStyle = '#ff416c'; ctx.fill(); }); }
     enemies.forEach(e => { ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fillStyle = '#ff4b2b'; ctx.fill(); const sx = e.x + Math.cos(e.angle) * e.orbitR; const sy = e.y + Math.sin(e.angle) * e.orbitR; ctx.beginPath(); ctx.arc(sx, sy, e.satelliteR, 0, Math.PI * 2); ctx.fillStyle = '#ff416c'; ctx.fill(); });
     if (player.visible) {
-        player.trail.forEach((t, i) => { ctx.globalAlpha = 0.25 * (i / player.trail.length); ctx.beginPath(); ctx.arc(t.x, t.y, player.r * (0.6 + i/player.trail.length*0.4), 0, Math.PI * 2); ctx.fillStyle = player.color; ctx.fill(); });
-        ctx.globalAlpha = 1.0; ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2); ctx.fillStyle = player.color; ctx.shadowBlur = 15; ctx.shadowColor = player.color; ctx.fill(); ctx.shadowBlur = 0;
+        if (player.invincible % 10 < 5) {
+            player.trail.forEach((t, i) => { ctx.globalAlpha = 0.25 * (i / player.trail.length); ctx.beginPath(); ctx.arc(t.x, t.y, player.r * (0.6 + i/player.trail.length*0.4), 0, Math.PI * 2); ctx.fillStyle = player.color; ctx.fill(); });
+            ctx.globalAlpha = 1.0; ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2); ctx.fillStyle = player.color; ctx.shadowBlur = 15; ctx.shadowColor = player.color; ctx.fill(); ctx.shadowBlur = 0;
+        }
         const barW = player.r * 2.5; const barH = 5; ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW, barH); ctx.fillStyle = stageEnergy > 40 ? '#00d2ff' : '#ff4b2b'; ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW * (stageEnergy / 200), barH);
     }
     floatingTexts.forEach(t => { ctx.fillStyle = `rgba(255, 75, 43, ${t.life})`; ctx.font = `bold ${S*0.04}px Arial`; ctx.fillText(t.text, t.x, t.y); });
