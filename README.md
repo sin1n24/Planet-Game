@@ -24,8 +24,8 @@ ORBITAL_DRIFT is a browser-based action game where you navigate a glowing orb th
 
 | Energy | Status |
 |--------|--------|
-| > 20   | Normal movement |
-| 1–20   | DANGER — HUD flashes red |
+| > 40   | Normal movement |
+| 1–40   | DANGER — HUD flashes red |
 | 0      | Enemies lock on and chase you — you cannot move |
 
 ---

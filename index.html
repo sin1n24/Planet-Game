@@ -80,7 +80,7 @@
 <div id="ui">
     <div class="hud">
         <div class="hud-item">STAGE: <span id="stageNum">1</span> / 5</div>
-        <div class="hud-item">ENERGY: <span id="bonusVal">100</span></div>
+        <div class="hud-item">ENERGY: <span id="bonusVal">200</span></div>
         <div class="hud-item">SCORE: <span id="scoreVal">0</span></div>
     </div>
 </div>
@@ -106,7 +106,7 @@ const ctx = canvas.getContext('2d');
 
 let stage = 1;
 let score = 0;
-let stageEnergy = 100;
+let stageEnergy = 200;
 let gameState = 'playing';
 let enemies = [];
 let particles = [];
@@ -139,7 +139,7 @@ function initGame() {
     }
     player.targetX = player.x; player.targetY = player.y;
     player.visible = true; goal.visible = true; player.trail = [];
-    stageEnergy = 100;
+    stageEnergy = 200;
     enemies = []; boss = null; particles = [];
     gameState = 'playing';
     if (stage < 5) setupEnemies(); else createBoss();
@@ -244,7 +244,7 @@ function draw() {
     if (player.visible) {
         player.trail.forEach((t, i) => { ctx.globalAlpha = 0.25 * (i / player.trail.length); ctx.beginPath(); ctx.arc(t.x, t.y, player.r * (0.6 + i/player.trail.length*0.4), 0, Math.PI * 2); ctx.fillStyle = player.color; ctx.fill(); });
         ctx.globalAlpha = 1.0; ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2); ctx.fillStyle = player.color; ctx.shadowBlur = 15; ctx.shadowColor = player.color; ctx.fill(); ctx.shadowBlur = 0;
-        const barW = player.r * 2.5; const barH = 5; ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW, barH); ctx.fillStyle = stageEnergy > 20 ? '#00d2ff' : '#ff4b2b'; ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW * (stageEnergy / 100), barH);
+        const barW = player.r * 2.5; const barH = 5; ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW, barH); ctx.fillStyle = stageEnergy > 40 ? '#00d2ff' : '#ff4b2b'; ctx.fillRect(player.x - barW/2, player.y - player.r - 15, barW * (stageEnergy / 200), barH);
     }
     floatingTexts.forEach(t => { ctx.fillStyle = `rgba(255, 75, 43, ${t.life})`; ctx.font = `bold ${S*0.04}px Arial`; ctx.fillText(t.text, t.x, t.y); });
     requestAnimationFrame(() => { update(); draw(); });
