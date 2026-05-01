@@ -89,7 +89,7 @@
 
 <div id="overlay">
     <div class="game-title">ORBITAL_DRIFT</div>
-    <div class="game-version">v1.2.1</div>
+    <div class="game-version">v1.2.2</div>
     <h1 id="resultMsg">GAME OVER</h1>
     <div class="final-score">SCORE: <span id="finalScoreVal">0</span></div>
     <button class="btn btn-retry" id="retryBtn">Retry</button>
@@ -208,6 +208,8 @@ function handleHit(sx, sy, obj) {
         const force = S * 0.05;
         player.vx = Math.cos(angle) * force;
         player.vy = Math.sin(angle) * force;
+        player.targetX = player.x;
+        player.targetY = player.y;
         player.knockbackTime = 40;
         if (obj && 'vx' in obj) {
             obj.vx = -Math.cos(angle) * force * 0.5;
