@@ -89,7 +89,7 @@
 
 <div id="overlay">
     <div class="game-title">ORBITAL_DRIFT</div>
-    <div class="game-version">v1.2.0</div>
+    <div class="game-version">v1.2.1</div>
     <h1 id="resultMsg">GAME OVER</h1>
     <div class="final-score">SCORE: <span id="finalScoreVal">0</span></div>
     <button class="btn btn-retry" id="retryBtn">Retry</button>
@@ -122,7 +122,7 @@ let S = 0;
 const player = { 
     x: 0, y: 0, r: 0, color: '#00d2ff', 
     targetX: 0, targetY: 0, speed: 0.08, visible: true,
-    trail: [], invincibleTime: 0, vx: 0, vy: 0
+    trail: [], invincibleTime: 0, vx: 0, vy: 0, knockbackTime: 0
 };
 const goal = { x: 0, y: 0, r: 0, color: '#ffea00', visible: true };
 
@@ -142,7 +142,7 @@ function initGame() {
         goal.x = canvas.width * (1 - offsetFactor); goal.y = canvas.height * 0.9;
     }
     player.targetX = player.x; player.targetY = player.y;
-    player.vx = 0; player.vy = 0;
+    player.vx = 0; player.vy = 0; player.knockbackTime = 0;
     player.visible = true; goal.visible = true; player.trail = [];
     player.invincibleTime = 0;
     stageEnergy = 200;
@@ -208,6 +208,7 @@ function handleHit(sx, sy, obj) {
         const force = S * 0.05;
         player.vx = Math.cos(angle) * force;
         player.vy = Math.sin(angle) * force;
+        player.knockbackTime = 40;
         if (obj && 'vx' in obj) {
             obj.vx = -Math.cos(angle) * force * 0.5;
             obj.vy = -Math.sin(angle) * force * 0.5;
@@ -220,8 +221,13 @@ function update() {
     if (player.invincibleTime > 0) player.invincibleTime--;
     if (gameState !== 'playing') return;
     if (stageEnergy > 0) stageEnergy -= 0.04; else stageEnergy = 0;
-    player.x += (player.targetX - player.x) * player.speed + player.vx;
-    player.y += (player.targetY - player.y) * player.speed + player.vy;
+    let controlScale = 1.0;
+    if (player.knockbackTime > 0) {
+        controlScale = 1.0 - (player.knockbackTime / 40);
+        player.knockbackTime--;
+    }
+    player.x += (player.targetX - player.x) * player.speed * controlScale + player.vx;
+    player.y += (player.targetY - player.y) * player.speed * controlScale + player.vy;
     player.vx *= 0.92; player.vy *= 0.92;
     player.trail.push({x: player.x, y: player.y});
     if (player.trail.length > 8) player.trail.shift();
